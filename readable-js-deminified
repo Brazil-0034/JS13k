@@ -1,0 +1,505 @@
+let {
+	initKeys,
+	keyPressed,
+	init,
+	Sprite,
+	GameLoop,
+	Text
+} = kontra;
+
+let {
+	canvas
+} = init();
+
+let sprites = []
+
+const maxVelocity = 5;
+const shipVelocity = [0, 0];
+const shipSpeed = 0.5;
+const stoppingPower = 0.15;
+
+let shipSize = 15;
+
+// amount of bullets fired per shot
+let bulletCount = 1;
+
+// # of enemies killed
+var killCount = 0;
+
+// speed of enemies
+let enemySpeed = 1;
+
+// # of enemies on screen
+let enemyCount = 0;
+
+// max # of enemies (first wave)
+let enemyMax = 10;
+
+let smallEnemyRate = 15;
+let bigEnemyRate = 20;
+let waveCount = 1;
+
+let colors = ['aqua', 'teal', 'white', 'lime', 'gold', 'yellow', 'pink', 'green', 'orange', 'white']
+
+/*
+# GET WORLD SEED from DRAND!! :0
+*/
+
+var gameSeed = []
+
+const getGameSeed = function() {
+	var request = new XMLHttpRequest();
+	request.open('GET', 'https://api.drand.sh/public/latest', true);
+	request.send(null);
+	request.onreadystatechange = function() {
+		if (request.readyState === 4 && request.status === 200) {
+			var type = request.getResponseHeader('Content-Type');
+			if (type.indexOf("text") !== 1) {
+				gameSeed = JSON.parse(request.responseText).randomness;
+				gameSeed = gameSeed.replace(/\D/g, '');
+
+				gameSeed = gameSeed.split("");
+				console.log("Game Seed: " + gameSeed);
+			}
+		}
+	}
+}
+
+getGameSeed();
+
+initKeys();
+
+kontra.initPointer();
+
+let sprite = Sprite({
+	type: 'player', // we'll use this later for collision detection
+	x: canvas.width / 2,
+	y: canvas.height / 2,
+	radius: 2,
+	render() {
+		this.context.lineWidth = 5;
+		this.context.strokeStyle = colors[gameSeed[0]];
+		this.context.beginPath(); // start drawing a shape
+		this.context.arc(0, 0, this.radius, 0, Math.PI);
+		this.context.stroke(); // outline the circle
+
+		this.context.strokeStyle = colors[gameSeed[1]];
+		this.context.beginPath(); // start drawing a shape
+		this.context.arc(0, 0, this.radius * 4, 0, Math.PI * 2);
+		this.context.stroke(); // outline the circle
+	}
+});
+sprites.push(sprite)
+
+
+/*
+# BULLETS SYSTEM
+*/
+
+
+kontra.onPointerDown(function(e, object) {
+	//console.log(e)
+	let mX = e.clientX;
+	let mY = e.clientY;
+
+	let pX = sprite.x;
+	let pY = sprite.y;
+
+	let c = 0;
+
+	const cos = Math.cos(this.rotation);
+	const sin = Math.sin(this.rotation);
+
+	let dirX = 1;
+	let dirY = 1;
+
+	if (mX < pX) dirX = -1;
+	if (mY < pY) dirY = -1;
+
+	if (Math.abs(mX - pX) < 75) dirX = 0;
+	if (Math.abs(mY - pY) < 75 && dirX != 0) dirY = 0;
+
+	for (let i = -(bulletCount / 2); i < bulletCount; i++) {
+		let bullet = kontra.Sprite({
+			type: 'bullet',
+			color: colors[gameSeed[2]],
+			// start the bullet on the ship at the end of the triangle
+			x: sprite.x,
+			y: sprite.y,
+			// move the bullet slightly faster than the ship
+			dx: dirX * 10 - (i * 4),
+			dy: dirY * 10 - (i * 4),
+			// live only 50 frames
+			ttl: 50,
+			radius: 2,
+			width: 5,
+			height: 5
+		});
+		sprites.push(bullet);
+	}
+
+});
+
+/*
+# TEXT BUBBLE (for Commander Overlay)
+*/
+
+let bubbleImg = new Image();
+
+bubbleImg.src = 'https://i.postimg.cc/k4xhnyc4/bubble.png';
+let bubble;
+bubbleImg.onload = function() {
+	bubble = Sprite({
+		x: 340,
+		y: canvas.height - 60,
+		anchor: {
+			x: 0.5,
+			y: 0.5
+		},
+		// required for an image sprite
+		image: bubbleImg,
+	});
+
+	sprites.push(bubble);
+};
+
+let text = Text({
+	x: 335,
+	y: 540,
+	text: 'Cadet! Our EMPIRE is in trouble!\nUse WASD to MOVE,\nand MOUSE to Aim',
+	font: '24px Courier New',
+	color: 'white',
+	anchor: {
+		x: 0.5,
+		y: 0.5
+	},
+	textAlign: 'left',
+});
+sprites.push(text);
+
+let killCountText = Text({
+	x: canvas.width / 2,
+	y: 50,
+	text: 'Kill Count: ' + killCount + ' - Wave: ' + waveCount,
+	font: '24px Courier New',
+	color: 'white',
+	anchor: {
+		x: 0.5,
+		y: 0.5
+	},
+	textAlign: 'center',
+});
+sprites.push(killCountText);
+
+let enemyCountText = Text({
+	x: canvas.width / 2,
+	y: canvas.height - 150,
+	text: 'Enemy Count: ' + enemyCount + ' / 100',
+	font: '24px Courier New',
+	color: 'white',
+	anchor: {
+		x: 0.5,
+		y: 0.5
+	},
+	textAlign: 'center',
+});
+sprites.push(enemyCountText);
+
+const random = function(max, min = 0) {
+	return Math.floor(Math.random() * max)
+}
+
+const createEnemy = function() {
+	enemyCount++;
+	if (gameSeed[4] < 2) gameSeed[5] += 3;
+	let enemy = Sprite({
+
+		type: 'enemy', // we'll use this later for collision detection
+		x: canvas.width / 2 + (random(400) - 200),
+		y: canvas.height / 2 + (random(400) - 200),
+		radius: 3,
+		dx: random(enemySpeed * 2) - enemySpeed / 2,
+		dy: random(enemySpeed * 2) - enemySpeed / 2,
+		render() {
+			this.context.strokeStyle = colors[gameSeed[random(gameSeed[4])]];
+			this.context.beginPath(); // start drawing a shape
+			this.context.arc(0, 0, this.radius, 0, Math.PI * gameSeed[random(gameSeed[6])]);
+			this.context.stroke(); // outline the circle
+
+			this.context.strokeStyle = colors[gameSeed[random(gameSeed[4])]];
+			this.context.beginPath(); // start drawing a shape
+			this.context.arc(0, 0, this.radius * 4, 0, Math.PI / 2);
+			this.context.stroke(); // outline the circle
+		}
+	});
+	sprites.push(enemy)
+
+}
+
+const bigEnemy = function() {
+	enemyCount++;
+	let enemy = Sprite({
+
+		type: 'enemyBig', // we'll use this later for collision detection
+		x: canvas.width / 2 + (random(400) - 200),
+		y: canvas.height / 2 + (random(400) - 200),
+		radius: 6 + gameSeed[7] / 2,
+		health: 5 + gameSeed[7] / 2,
+		dx: random(enemySpeed * 2) - enemySpeed / 2,
+		dy: random(enemySpeed * 2) - enemySpeed / 2,
+		render() {
+			this.context.strokeStyle = colors[gameSeed[random(gameSeed[4])]];
+			this.context.beginPath(); // start drawing a shape
+			this.context.arc(0, 0, this.radius, 0, Math.PI * gameSeed[random(gameSeed[6])]);
+			this.context.stroke(); // outline the circle
+
+			this.context.strokeStyle = colors[gameSeed[random(gameSeed[4])]];
+			this.context.beginPath(); // start drawing a shape
+			this.context.arc(0, 0, this.radius * 4, 0, Math.PI * 2);
+			this.context.stroke(); // outline the circle
+		}
+	});
+
+	sprites.push(enemy);
+}
+
+let currentFrame = 0;
+
+// powerups
+let multiShot = false;
+
+let loop = GameLoop({ // create the main game loop
+	update: function() { // update the game state
+		enemyCountText.text = 'Enemy Count: ' + enemyCount + ' / 100';
+		if (enemyCount > 50) enemyCountText.color = 'red';
+		else enemyCountText.color = 'white';
+
+		if (enemyCount < enemyMax) {
+
+			if (currentFrame > 800) {
+				if (currentFrame % smallEnemyRate === 0) createEnemy();
+				if (currentFrame % bigEnemyRate === 0 && waveCount >= 5) bigEnemy();
+			}
+
+		}
+		if (enemyCount > 100) {
+			sprites.map(spr => {
+				spr.ttl = 0
+			});
+			sprites = [];
+
+
+			let endSprite = Sprite({
+				x: 0,
+				y: 0,
+				radius: 3,
+				color: 'black',
+				height: 1000,
+				width: 1000,
+				ttl: 5
+			});
+			sprites.push(endSprite);
+
+
+
+			let endText = Text({
+				x: canvas.width / 2,
+				y: canvas.height - 400,
+				text: "We've been Overwhelmed!\nThere were too many intruders\nfor our forces to stop them.",
+				font: '24px Courier New',
+				color: 'red',
+				anchor: {
+					x: 0.5,
+					y: 0.5
+				},
+				textAlign: 'center',
+			});
+			sprites.push(endText);
+
+			let resText = Text({
+				x: canvas.width / 2,
+				y: canvas.height - 200,
+				text: "Press [F] to Keep Going",
+				font: '24px Courier New',
+				color: 'teal',
+				anchor: {
+					x: 0.5,
+					y: 0.5
+				},
+				textAlign: 'center',
+			});
+			sprites.push(resText);
+		}
+
+
+		if (waveCount === 5) {
+			multiShot = true;
+			text.text = "Powerup: Multishot!";
+			text.color = 'red';
+			bulletCount = 3;
+		}
+
+		if (killCount % 30 === 0) {
+			if (enemyMax < 200) enemyMax += 15;
+			killCount++;
+			waveCount++;
+			smallEnemyRate /= 2;
+			bigEnemyRate /= 2;
+		}
+
+		//killcount text flash
+		killCountText.color = 'white';
+
+		currentFrame++;
+		if (currentFrame === 400) {
+			text.text = "Press [LEFT MOUSE to\nShoot your Lasers!"
+		} else if (currentFrame === 600) {
+			text.text = "Hold off waves of Intruders\nfor as long as you can!"
+			// vanish text and bubble, maybe by moving it down idk
+		} else if (currentFrame === 900) {
+			text.color = 'red';
+			text.text = "Do NOT let more than 100\nintruders attack at once!"
+			// vanish text and bubble, maybe by moving it down idk
+		} else if (currentFrame == 1200) {
+			text.color = 'white';
+		}
+
+		sprites.map(spr => {
+			spr.update();
+
+			if (spr.type != 'bullet') {
+				if (spr.x > canvas.width) spr.x = -spr.width
+				if (spr.x < 0) spr.x = canvas.width
+				if (spr.y > canvas.height) spr.y = -spr.height
+				if (spr.y < 0) spr.y = canvas.height
+			}
+		})
+		let pressedThisFrame = false;
+
+		if (kontra.keyPressed('d')) {
+			if (shipVelocity[0] < maxVelocity) shipVelocity[0] += shipSpeed;
+		};
+
+		if (kontra.keyPressed('a')) {
+			pressedThisFrame = true;
+			if (shipVelocity[0] > -maxVelocity) shipVelocity[0] -= shipSpeed;
+		}
+		if (kontra.keyPressed('s')) {
+			pressedThisFrame = true;
+			if (shipVelocity[1] < maxVelocity) shipVelocity[1] += shipSpeed;
+		}
+		if (kontra.keyPressed('w')) {
+			pressedThisFrame = true;
+			if (shipVelocity[1] > -maxVelocity) shipVelocity[1] -= shipSpeed;
+		}
+
+		sprite.y += shipVelocity[1];
+		sprite.x += shipVelocity[0];
+
+		if (!pressedThisFrame) {
+			if (shipVelocity[0] > 0) shipVelocity[0] -= stoppingPower
+			if (shipVelocity[0] < 0) shipVelocity[0] += stoppingPower
+			if (shipVelocity[1] < 0) shipVelocity[1] += stoppingPower
+			if (shipVelocity[1] > 0) shipVelocity[1] -= stoppingPower
+		}
+
+		//console.log(shipVelocity);
+		sprites = sprites.filter(sprite => sprite.isAlive());
+
+		/*
+		# Collisions
+		*/
+
+		for (let i = 0; i < sprites.length; i++) {
+			if (sprites[i].type === 'enemy' || sprites[i].type === 'enemyBig') {
+				for (let j = 0; j < sprites.length; j++) {
+					if (sprites[j].type === 'bullet') {
+						let enem = sprites[i];
+						let pjct = sprites[j];
+						let dx = enem.x - pjct.x;
+						let dy = enem.y - pjct.y;
+						let targetRadius = enem.radius * 6;
+						if (sprites[i].type === 'enemyBig') targetRadius *= 4;
+						if (Math.hypot(dx, dy) < (targetRadius) + pjct.radius) {
+							if (sprites[i].type === 'enemyBig') {
+								sprites[i].health -= 1;
+								sprites[i].radius -= 1;
+								if (sprites[i].health <= 2) sprites[i].type = 'enemy';
+								break;
+							}
+
+							enem.ttl = 0;
+							pjct.ttl = 0;
+							killCount++;
+							killCountText.text = 'Kill Count: ' + killCount + ' - Wave: ' + waveCount;
+							killCountText.color = 'red';
+							explode(enem.x, enem.y);
+							enemyCount--;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+	},
+	render: function() { // render the game state
+		sprites.map(sprite => sprite.render());
+	}
+});
+
+// Update Game Seed
+kontra.bindKeys('r', function(e) {
+	getGameSeed();
+}, 'keyup');
+
+kontra.bindKeys('f', function(e) {
+	window.location.reload();
+}, 'keyup');
+
+kontra.bindKeys('e', function(e) {
+	bigEnemy();
+}, 'keyup');
+
+const explode = function(x, y) {
+	let size = gameSeed[8];
+	if (size < 10) size *= 2;
+	let explodeVFX = Sprite({
+		x: x,
+		y: y,
+		radius: 3,
+		color: 'yellow',
+		height: size,
+		width: size,
+		ttl: 5
+	});
+
+	sprites.push(explodeVFX)
+}
+
+/*
+# COMMANDER OVERLAY
+*/
+
+let cmdrImg = new Image();
+
+cmdrImg.src = 'https://i.postimg.cc/MpMxbh5j/commander.png';
+
+cmdrImg.onload = function() {
+	let cmdr = Sprite({
+		x: 40,
+		y: canvas.height - 60,
+		anchor: {
+			x: 0.5,
+			y: 0.5
+		},
+		height: 20,
+
+		// required for an image sprite
+		image: cmdrImg
+	});
+
+	sprites.push(cmdr);
+};
+
+loop.start(); // start the game
